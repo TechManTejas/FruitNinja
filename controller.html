@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>FruitSlice Controller</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; overflow: hidden; touch-action: none; background: #0d0d1a; color: #fff; font-family: system-ui, sans-serif; }
+  body { display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: 24px 20px; gap: 14px; }
+
+  h1 { font-size: 20px; font-weight: 300; letter-spacing: 3px; margin-top: 10px; }
+
+  /* Debug log */
+  #log {
+    width: 100%; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 10px; padding: 10px 12px; font-family: monospace; font-size: 12px;
+    color: #aaa; line-height: 1.8; min-height: 130px; max-height: 200px; overflow-y: auto;
+  }
+  #log .ok  { color: #00d068; }
+  #log .err { color: #ff5555; }
+  #log .info{ color: #74b9ff; }
+
+  input[type=text] {
+    background: rgba(255,255,255,0.08); border: 1.5px solid rgba(255,255,255,0.2);
+    border-radius: 12px; padding: 14px 18px;
+    color: #ffd700; font-size: 26px; font-weight: 700;
+    letter-spacing: 8px; font-family: monospace;
+    text-align: center; width: 100%; max-width: 260px;
+    text-transform: uppercase; outline: none;
+  }
+  input:focus { border-color: rgba(255,215,0,0.5); }
+
+  .btn {
+    background: #ffd700; color: #000; border: none;
+    border-radius: 12px; padding: 15px 28px;
+    font-size: 16px; font-weight: 700; cursor: pointer;
+    width: 100%; max-width: 260px;
+  }
+  .btn:active { opacity: 0.8; transform: scale(0.97); }
+  .btn:disabled { opacity: 0.35; }
+  .btn-sec {
+    background: rgba(255,255,255,0.08); color: #fff;
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 12px; padding: 13px 24px;
+    font-size: 15px; cursor: pointer; width: 100%; max-width: 260px;
+  }
+  .btn-sec:active { background: rgba(255,255,255,0.15); }
+
+  #gyro-big {
+    font-size: 15px; color: rgba(255,255,255,0.3); font-family: monospace;
+    text-align: center; line-height: 2;
+  }
+  #gyro-big span { color: #ffd700; font-size: 20px; }
+
+  .label { font-size: 12px; color: rgba(255,255,255,0.3); text-align: center; }
+</style>
+</head>
+<body>
+
+<h1>🍉 CONTROLLER</h1>
+
+<div id="log"></div>
+
+<input type="text" id="code" maxlength="6" placeholder="XXXXXX"
+  autocomplete="off" autocorrect="off" autocapitalize="characters" spellcheck="false"/>
+
+<button class="btn" id="btn-connect" onclick="doConnect()">Connect to Game</button>
+
+<button class="btn-sec" id="btn-perm" onclick="askPermission()" style="display:none">
+  📱 Allow Motion Sensors (iOS)
+</button>
+
+<button class="btn-sec" id="btn-cal" onclick="doCalibrate()" style="display:none">
+  🎯 Recalibrate Center
+</button>
+
+<div id="gyro-big">
+  β (fwd/back): <span id="gB">—</span><br>
+  γ (left/right): <span id="gG">—</span>
+</div>
+<div class="label">These numbers must change when you tilt the phone</div>
+
+<script>
+// ── Logging ──
+const logEl = document.getElementById('log');
+function log(msg, cls) {
+  const line = document.createElement('div');
+  if (cls) line.className = cls;
+  line.textContent = '[' + new Date().toLocaleTimeString() + '] ' + msg;
+  logEl.appendChild(line);
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+// ── Auto-fill code ──
+const urlCode = new URLSearchParams(location.search).get('code');
+if (urlCode) {
+  document.getElementById('code').value = urlCode;
+  log('Code pre-filled from URL: ' + urlCode, 'info');
+}
+
+// ── Gyro ──
+let lastBeta = 0, lastGamma = 0, gyroCount = 0;
+
+function onOrientation(e) {
+  lastBeta  = e.beta  ?? 0;
+  lastGamma = e.gamma ?? 0;
+  gyroCount++;
+  document.getElementById('gB').textContent = Math.round(lastBeta)  + '°';
+  document.getElementById('gG').textContent = Math.round(lastGamma) + '°';
+  if (gyroCount === 1)  log('✅ First gyro event received!', 'ok');
+  if (gyroCount === 30) log('Gyro streaming OK (' + gyroCount + ' events)', 'ok');
+}
+
+function startGyro() {
+  log('Adding deviceorientation listener…', 'info');
+  window.addEventListener('deviceorientation', onOrientation, true);
+  // test after 2s if we got any events
+  setTimeout(() => {
+    if (gyroCount === 0) {
+      log('⚠️ No gyro events yet — sensor may be blocked or unavailable', 'err');
+    }
+  }, 2000);
+}
+
+function askPermission() {
+  log('Requesting iOS motion permission…', 'info');
+  DeviceOrientationEvent.requestPermission().then(state => {
+    log('Permission result: ' + state, state === 'granted' ? 'ok' : 'err');
+    if (state === 'granted') {
+      document.getElementById('btn-perm').style.display = 'none';
+      startGyro();
+    } else {
+      log('Go to Settings → Safari → Motion & Orientation Access → ON', 'err');
+    }
+  }).catch(e => {
+    log('Permission error: ' + e, 'err');
+    startGyro();
+  });
+}
+
+// Check if iOS permission needed
+function initGyro() {
+  if (typeof DeviceOrientationEvent !== 'undefined' &&
+      typeof DeviceOrientationEvent.requestPermission === 'function') {
+    log('iOS detected — tap "Allow Motion Sensors" button', 'info');
+    document.getElementById('btn-perm').style.display = 'block';
+  } else {
+    log('Android/desktop — starting gyro directly', 'info');
+    startGyro();
+  }
+}
+
+// ── PeerJS ──
+let peer, conn, sendTimer;
+
+function loadPeerJS(cb) {
+  if (window.Peer) { cb(); return; }
+  log('Loading PeerJS…', 'info');
+  const s = document.createElement('script');
+  s.src = 'https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js';
+  s.onload = () => { log('PeerJS loaded', 'ok'); cb(); };
+  s.onerror = () => log('Failed to load PeerJS — check internet', 'err');
+  document.head.appendChild(s);
+}
+
+function doConnect() {
+  const code = document.getElementById('code').value.trim().toUpperCase();
+  if (code.length < 6) { log('Enter the full 6-letter code first', 'err'); return; }
+
+  const btn = document.getElementById('btn-connect');
+  btn.disabled = true;
+  btn.textContent = 'Connecting…';
+
+  loadPeerJS(() => {
+    if (peer) { try { peer.destroy(); } catch(e){} }
+
+    log('Creating PeerJS client…', 'info');
+    peer = new Peer({
+      host: '0.peerjs.com', port: 443, path: '/', secure: true,
+      debug: 0,
+      config: { iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' }
+      ]}
+    });
+
+    peer.on('open', myId => {
+      log('My peer ID: ' + myId, 'ok');
+      log('Connecting to game: ' + code + '…', 'info');
+      conn = peer.connect(code, { reliable: false, serialization: 'json' });
+
+      conn.on('open', () => {
+        log('✅ Connected to game!', 'ok');
+        btn.textContent = '✅ Connected';
+        document.getElementById('btn-cal').style.display = 'block';
+        startSending();
+      });
+
+      conn.on('error', e => {
+        log('Connection error: ' + JSON.stringify(e), 'err');
+        btn.disabled = false; btn.textContent = 'Try Again';
+      });
+
+      conn.on('close', () => {
+        log('Connection closed', 'err');
+        if (sendTimer) clearInterval(sendTimer);
+        btn.disabled = false; btn.textContent = 'Reconnect';
+        document.getElementById('btn-cal').style.display = 'none';
+      });
+    });
+
+    peer.on('error', e => {
+      const msg = e.type === 'peer-unavailable'
+        ? 'Game not found — is game.html open in the browser?'
+        : (e.message || e.type);
+      log('PeerJS error: ' + msg, 'err');
+      btn.disabled = false; btn.textContent = 'Try Again';
+    });
+  });
+}
+
+function startSending() {
+  if (sendTimer) clearInterval(sendTimer);
+  let sent = 0;
+  sendTimer = setInterval(() => {
+    if (conn && conn.open) {
+      conn.send({ type: 'gyro', beta: lastBeta, gamma: lastGamma });
+      sent++;
+      if (sent === 1)  log('Sending gyro data…', 'info');
+      if (sent === 30) log('Gyro stream active ✅', 'ok');
+    } else {
+      log('Connection lost during send', 'err');
+      clearInterval(sendTimer);
+    }
+  }, 33);
+}
+
+function doCalibrate() {
+  if (conn && conn.open) {
+    conn.send({ type: 'calibrate' });
+    log('Calibrated center', 'ok');
+  } else {
+    log('Not connected', 'err');
+  }
+}
+
+document.getElementById('code').addEventListener('keydown', e => {
+  if (e.key === 'Enter') doConnect();
+});
+
+// Start
+log('Page loaded. Checking gyro…', 'info');
+initGyro();
+</script>
+</body>
+</html>
