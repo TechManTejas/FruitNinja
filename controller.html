@@ -199,11 +199,9 @@ function onMotion(e) {
   // Inverted per user feedback → negate.
   accumX -= rr.gamma * dt;
 
-  // Vertical: beta (rotation around X axis) = up/down sweep.
-  // Sweep phone UP → beta rate is negative → we want cursor to go UP (ny decreases).
-  // So: accumY += beta (goes negative when sweeping up)
-  //     ny = 0.5 + accumY/range  → ny decreases when accumY negative → cursor up ✓
-  accumY += rr.beta * dt;
+  // Vertical: alpha (rotation around Z axis) = up/down sweep when phone held portrait.
+  // Same treatment as gamma for horizontal — integrate alpha rate for vertical pan.
+  accumY -= rr.alpha * dt;
 
   // Map to [0..1] screen space
   nx = 0.5 + accumX / (RANGE_DEG * 2);
